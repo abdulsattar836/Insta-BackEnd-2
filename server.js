@@ -31,81 +31,73 @@ const globalErrorHandler = require("./Controller/error_controller");
 const { initializeSocket } = require("./socket.io/webSocket");
 
 // ==================================================
-// 🔹 APP & SERVER
+// 🔹 CREATE APP FUNCTION
 // ==================================================
-const app = express();
-const server = http.createServer(app);
-initializeSocket(server);
+function createServer() {
+  const app = express();
+  const server = http.createServer(app);
+
+  // Initialize Socket
+  initializeSocket(server);
+
+  // Swagger
+  app.use(
+    "/api-docs",
+    basicAuth({
+      users: {
+        [process.env.SWAGGER_USERNAME]: process.env.SWAGGER_PASSWORD,
+      },
+      challenge: true,
+    }),
+    swaggerUi.serve,
+    swaggerUi.setup(swaggerSpec, {
+      explorer: true,
+      customCss: theme.getBuffer("dark"),
+    }),
+  );
+
+  // Middlewares
+  app.enable("trust proxy");
+  app.use(cors({ origin: true, credentials: true }));
+  app.use(express.json({ limit: "10kb" }));
+  app.use(express.urlencoded({ extended: true, limit: "10kb" }));
+  app.use(cookieParser());
+
+  // Create required folders
+  const rootFolders = ["files", "uploads"];
+  rootFolders.forEach((folder) => {
+    const folderPath = path.join(process.cwd(), folder);
+    if (!fs.existsSync(folderPath))
+      fs.mkdirSync(folderPath, { recursive: true });
+  });
+
+  // Static files
+  app.use("/files", express.static(path.join(process.cwd(), "files")));
+  app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+
+  // Routes
+  app.use("/api/v1/user", userRouter);
+  app.use("/api/v1/upload", fileRouter);
+  app.use("/api/v1/profile", profileRouter);
+
+  // 404 handler
+  app.all("*", (req, res, next) => {
+    next(new AppError(`Can't find ${req.originalUrl} on this server`, 404));
+  });
+
+  // Global error handler
+  app.use(globalErrorHandler);
+
+  return { app, server };
+}
 
 // ==================================================
-// 🔹 SWAGGER
+// 🔹 START SERVER FUNCTION
 // ==================================================
-app.use(
-  "/api-docs",
-  basicAuth({
-    users: {
-      [process.env.SWAGGER_USERNAME]: process.env.SWAGGER_PASSWORD,
-    },
-    challenge: true,
-  }),
-  swaggerUi.serve,
-  swaggerUi.setup(swaggerSpec, {
-    explorer: true,
-    customCss: theme.getBuffer("dark"),
-  }),
-);
-
-// ==================================================
-// 🔹 MIDDLEWARES
-// ==================================================
-app.enable("trust proxy");
-app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: "10kb" }));
-app.use(express.urlencoded({ extended: true, limit: "10kb" }));
-app.use(cookieParser());
-
-// ==================================================
-// 🔹 CREATE REQUIRED FOLDERS
-// ==================================================
-const rootFolders = ["files", "uploads"];
-rootFolders.forEach((folder) => {
-  const folderPath = path.join(process.cwd(), folder);
-  if (!fs.existsSync(folderPath)) {
-    fs.mkdirSync(folderPath, { recursive: true });
-  }
-});
-
-// ==================================================
-// 🔹 STATIC FILES
-// ==================================================
-app.use("/files", express.static(path.join(process.cwd(), "files")));
-app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
-
-// ==================================================
-// 🔹 ROUTES
-// ==================================================
-app.use("/api/v1/user", userRouter);
-app.use("/api/v1/upload", fileRouter);
-app.use("/api/v1/profile", profileRouter);
-
-// ==================================================
-// 🔹 404 HANDLER
-// ==================================================
-app.all("*", (req, res, next) => {
-  next(new AppError(`Can't find ${req.originalUrl} on this server`, 404));
-});
-
-// ==================================================
-// 🔹 GLOBAL ERROR HANDLER
-// ==================================================
-app.use(globalErrorHandler);
-
-// ==================================================
-// 🔹 DATABASE & SERVER START
-// ==================================================
-const DB = process.env.mongo_uri;
-
 async function startServer() {
+  const { app, server } = createServer();
+  const DB = process.env.mongo_uri;
+
   try {
     await mongoose.connect(DB, {
       useNewUrlParser: true,
@@ -119,10 +111,13 @@ async function startServer() {
     });
   } catch (error) {
     console.error("❌ DB connection error:", error);
-    process.exit(1); // Stop process if DB fails
+    process.exit(1);
   }
+
+  return { app, server };
 }
 
-startServer();
-
-module.exports = app;
+// ==================================================
+// 🔹 EXPORTS
+// ==================================================
+module.exports = { createServer, startServer };
