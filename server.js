@@ -1,7 +1,10 @@
+const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const mongoose = require("mongoose");
+const dotenv = require("dotenv");
+dotenv.config();
 
 // Swagger
 const basicAuth = require("express-basic-auth");
@@ -21,7 +24,9 @@ const globalErrorHandler = require("./Controller/error_controller");
 
 const app = express();
 
-// ================= SWAGGER =================
+// ==================================================
+// 🔹 SWAGGER
+// ==================================================
 app.use(
   "/api-docs",
   basicAuth({
@@ -37,29 +42,57 @@ app.use(
   }),
 );
 
-// ================= MIDDLEWARES =================
+// ==================================================
+// 🔹 MIDDLEWARES
+// ==================================================
 app.enable("trust proxy");
+
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: "10kb" }));
 app.use(express.urlencoded({ extended: true, limit: "10kb" }));
 app.use(cookieParser());
 
-// ================= ROUTES =================
+// ==================================================
+// 🔹 ROUTES
+// ==================================================
 app.use("/api/v1/user", userRouter);
 app.use("/api/v1/upload", fileRouter);
 app.use("/api/v1/profile", profileRouter);
 
-// ================= 404 =================
+// ==================================================
+// 🔹 404 HANDLER
+// ==================================================
 app.all("*", (req, res, next) => {
   next(new AppError(`Can't find ${req.originalUrl}`, 404));
 });
 
+// ==================================================
+// 🔹 GLOBAL ERROR HANDLER
+// ==================================================
 app.use(globalErrorHandler);
 
-// ================= DB =================
-mongoose
-  .connect(process.env.mongo_uri)
-  .then(() => console.log("MongoDB connected"))
-  .catch(console.error);
+// ==================================================
+// 🔹 MONGODB (CACHED CONNECTION)
+// ==================================================
+let cached = global.mongoose;
 
-module.exports = app; // ✅ IMPORTANT
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
+
+async function connectDB() {
+  if (cached.conn) return cached.conn;
+
+  if (!cached.promise) {
+    cached.promise = mongoose
+      .connect(process.env.mongo_uri)
+      .then((mongoose) => mongoose);
+  }
+
+  cached.conn = await cached.promise;
+  return cached.conn;
+}
+
+connectDB();
+
+module.exports = app;

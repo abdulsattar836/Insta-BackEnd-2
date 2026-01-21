@@ -22,7 +22,7 @@ const {
 } = require("../utils/verifyToken_util");
 const sendOTPEmail = require("../utils/sendEmail/emailsend");
 //
-
+const uploadToCloudinary = require("../utils/cloudinary");
 const generateOTP = () => {
   const otp = Math.floor(100000 + Math.random() * 900000).toString(); // Generates a 6-digit OTP
   const expirationTime = new Date().getTime() + 1 * 60 * 1000; // Current time + 1minutes
@@ -33,7 +33,7 @@ const generateOTP = () => {
 // route /api/v1/user/signup:
 // @desciption for signup of user and sendotp
 const signUpUser = catchAsync(async (req, res, next) => {
-  // Validate form fields (except file)
+  // validate body
   const { error, value } = signupUserValidation.validate(req.body);
   if (error) {
     const errors = error.details.map((el) => el.message);
@@ -42,24 +42,28 @@ const signUpUser = catchAsync(async (req, res, next) => {
 
   const { username, email, password, bio, website } = value;
 
-  // Ensure profile picture is uploaded
+  // profile picture required
   if (!req.file) {
     return next(new AppError("Profile picture is required", 400));
   }
-  const profilePic = req.file.filename;
 
-  // Check if user already exists
+  // upload image to cloudinary
+  const imageResult = await uploadToCloudinary(req.file.buffer);
+  const profilePic = imageResult.secure_url; // ✅ URL
+
+  // check existing user
   let existingUser = await user_model.findOne({ email });
 
-  // Encrypt password
+  // encrypt password
   const encryptPassword = CryptoJS.AES.encrypt(
     password,
     process.env.CRYPTO_SEC,
   ).toString();
 
-  // Generate OTP with expiration (1 minute)
+  // generate OTP
   const otpData = generateOTP();
-  const expirationTime = Date.now() + 1 * 60 * 1000; // 1 minute
+  const expirationTime = Date.now() + 1 * 60 * 1000;
+
   const encryptOtp = CryptoJS.AES.encrypt(
     JSON.stringify({ otp: otpData.otp, expirationTime }),
     process.env.CRYPTO_SEC,
@@ -72,37 +76,35 @@ const signUpUser = catchAsync(async (req, res, next) => {
       );
     }
 
-    // Update unverified user
+    // update unverified user
     existingUser.username = username || existingUser.username;
     existingUser.bio = bio || existingUser.bio;
     existingUser.website = website || existingUser.website;
     existingUser.password = encryptPassword;
-    existingUser.profilePic = profilePic; // always replace with uploaded pic
+    existingUser.profilePic = profilePic;
     existingUser.otp = encryptOtp;
 
     await existingUser.save();
   } else {
-    // Create new user
+    // create new user
     await user_model.create({
       username: username || "",
       email,
       password: encryptPassword,
       bio: bio || "",
       website: website || "",
-      otp: encryptOtp,
       profilePic,
+      otp: encryptOtp,
     });
   }
 
-  // Send OTP email
+  // send OTP email
   await sendOTPEmail(email, otpData.otp);
 
-  return successMessage(
-    202,
-    res,
-    "OTP sent to your email, please verify your account",
-    null,
-  );
+  res.status(202).json({
+    status: "success",
+    message: "OTP sent to your email, please verify your account",
+  });
 });
 
 // method POST
