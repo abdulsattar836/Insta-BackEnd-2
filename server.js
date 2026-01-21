@@ -1,3 +1,6 @@
+// ==================================================
+// 🔹 IMPORTS
+// ==================================================
 const path = require("path");
 const fs = require("fs");
 const express = require("express");
@@ -27,6 +30,9 @@ const globalErrorHandler = require("./Controller/error_controller");
 // Socket
 const { initializeSocket } = require("./socket.io/webSocket");
 
+// ==================================================
+// 🔹 APP & SERVER
+// ==================================================
 const app = express();
 const server = http.createServer(app);
 initializeSocket(server);
@@ -53,17 +59,15 @@ app.use(
 // 🔹 MIDDLEWARES
 // ==================================================
 app.enable("trust proxy");
-
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: "10kb" }));
 app.use(express.urlencoded({ extended: true, limit: "10kb" }));
 app.use(cookieParser());
 
 // ==================================================
-// 🔹 CREATE REQUIRED FOLDERS (ROOT LEVEL)
+// 🔹 CREATE REQUIRED FOLDERS
 // ==================================================
 const rootFolders = ["files", "uploads"];
-
 rootFolders.forEach((folder) => {
   const folderPath = path.join(process.cwd(), folder);
   if (!fs.existsSync(folderPath)) {
@@ -72,9 +76,8 @@ rootFolders.forEach((folder) => {
 });
 
 // ==================================================
-// 🔹 STATIC FILE SERVING (🔥 FIXED)
+// 🔹 STATIC FILES
 // ==================================================
-// SAME folder where multer saves files
 app.use("/files", express.static(path.join(process.cwd(), "files")));
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
@@ -98,43 +101,28 @@ app.all("*", (req, res, next) => {
 app.use(globalErrorHandler);
 
 // ==================================================
-// 🔹 DATABASE
+// 🔹 DATABASE & SERVER START
 // ==================================================
 const DB = process.env.mongo_uri;
 
-// mongoose
-//   .connect(DB)
-//   .then(() => console.log("MongoDB connected successfully"))
-//   .catch((err) => console.error("DB connection error:", err));
-
-let isConnected = false;
-async function connectToMongoDB() {
+async function startServer() {
   try {
-    await mongoose.connect(process.env.mongo_uri, {
-      useNewUslPraser: true,
+    await mongoose.connect(DB, {
+      useNewUrlParser: true,
       useUnifiedTopology: true,
     });
-    isConnected = true;
-    console.log("Connected to MongoDB");
+    console.log("✅ Connected to MongoDB");
+
+    const PORT = process.env.PORT || 5000;
+    server.listen(PORT, () => {
+      console.log(`🚀 Server running at http://localhost:${PORT}`);
+    });
   } catch (error) {
-    console.error("Error Connecting to DB:", error);
+    console.error("❌ DB connection error:", error);
+    process.exit(1); // Stop process if DB fails
   }
 }
 
-app.use((req, res, nexr) => {
-  if (!isConnected) {
-    connectToMongoDB();
-  }
-  next();
-});
-
-// ==================================================
-// 🔹 SERVER
-// ==================================================
-// const PORT = process.env.PORT || 5000;
-
-// server.listen(PORT, () => {
-//   console.log(`App run with url http://localhost:${PORT}`);
-// });
+startServer();
 
 module.exports = app;
