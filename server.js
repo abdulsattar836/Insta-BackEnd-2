@@ -1,10 +1,8 @@
 const path = require("path");
-const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const mongoose = require("mongoose");
-const http = require("http");
 const dotenv = require("dotenv");
 dotenv.config({ path: ".env" });
 
@@ -24,12 +22,7 @@ const profileRouter = require("./Route/Profile_routes");
 const AppError = require("./utils/appError");
 const globalErrorHandler = require("./Controller/error_controller");
 
-// Socket
-const { initializeSocket } = require("./socket.io/webSocket");
-
 const app = express();
-const server = http.createServer(app);
-initializeSocket(server);
 
 // ==================================================
 // 🔹 SWAGGER
@@ -60,25 +53,6 @@ app.use(express.urlencoded({ extended: true, limit: "10kb" }));
 app.use(cookieParser());
 
 // ==================================================
-// 🔹 CREATE REQUIRED FOLDERS (ROOT LEVEL)
-// ==================================================
-const rootFolders = ["files", "uploads"];
-
-rootFolders.forEach((folder) => {
-  const folderPath = path.join(process.cwd(), folder);
-  if (!fs.existsSync(folderPath)) {
-    fs.mkdirSync(folderPath, { recursive: true });
-  }
-});
-
-// ==================================================
-// 🔹 STATIC FILE SERVING (🔥 FIXED)
-// ==================================================
-// SAME folder where multer saves files
-app.use("/files", express.static(path.join(process.cwd(), "files")));
-app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
-
-// ==================================================
 // 🔹 ROUTES
 // ==================================================
 app.use("/api/v1/user", userRouter);
@@ -98,41 +72,35 @@ app.all("*", (req, res, next) => {
 app.use(globalErrorHandler);
 
 // ==================================================
-// 🔹 DATABASE
+// 🔹 MONGODB CONNECTION (CACHED)
 // ==================================================
-const DB = process.env.mongo_uri;
-
-// mongoose
-//   .connect(DB)
-//   .then(() => console.log("MongoDB connected successfully"))
-//   .catch((err) => console.error("DB connection error:", err));
-
-let isConnected = false;
+let cached = global.mongoose;
+if (!cached) cached = global.mongoose = { conn: null, promise: null };
 
 async function connectToMongoDB() {
-  try {
-    await mongoose.connect(DB);
-    console.log("MongoDB connected successfully");
-    isConnected = true;
-  } catch (error) {
-    console.error("DB connection error:", error);
-    isConnected = false;
+  if (cached.conn) return cached.conn;
+
+  if (!cached.promise) {
+    cached.promise = mongoose
+      .connect(process.env.mongo_uri)
+      .then((mongoose) => {
+        return mongoose;
+      });
   }
+  cached.conn = await cached.promise;
+  return cached.conn;
 }
 
-app.use((req, res, next) => {
-  if (!isConnected) {
-    connectToMongoDB();
+// ==================================================
+// 🔹 EXPORT APP FOR VERCEL SERVERLESS
+// ==================================================
+app.use(async (req, res, next) => {
+  try {
+    await connectToMongoDB();
+    next();
+  } catch (err) {
+    next(err);
   }
-  next();
 });
-// ==================================================
-// 🔹 SERVER
-// ==================================================
-// const PORT = process.env.PORT || 5000;
-
-// server.listen(PORT, () => {
-//   console.log(`App run with url http://localhost:${PORT}`);
-// });
 
 module.exports = app;
